@@ -1,0 +1,286 @@
+
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EAX Console - Silver Echo</title>
+<style>
+body {
+  margin: 0;
+  padding: 15px;
+  background: #080d15;
+  color: white;
+  font-family: Arial, sans-serif;
+}
+.app {
+  max-width: 850px;
+  margin: 30px auto;
+  background: #eaf0f6;
+  color: #20354b;
+  border: 3px solid #367bb5;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.header {
+  background: linear-gradient(#1765a3,#082b51);
+  color: white;
+  padding: 18px;
+  font-weight: bold;
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  background: #cbd8e5;
+}
+button, select {
+  cursor: pointer;
+  padding: 10px;
+  border: 1px solid #9aaec1;
+  border-radius: 4px;
+}
+.tabs button { flex: 1; }
+button.active { background: #1765a3; color: white; }
+.content { padding: 16px; }
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+.panel {
+  background: white;
+  padding: 12px;
+  border: 1px solid #bdcbd8;
+  border-radius: 5px;
+  margin-bottom: 12px;
+}
+input[type=range] { width: 100%; }
+select { width: 100%; }
+.presets button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 3px 0;
+}
+.status { font-size: 13px; color: #52677c; }
+.footer {
+  background: #061b30;
+  color: #57ff91;
+  padding: 15px;
+  text-align: center;
+}
+#clock { font-family: monospace; font-size: 22px; }
+@media(max-width:600px) {
+  .columns { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    EAX CONSOLE | Sound Blaster Audio Engine
+  </div>
+
+  <div class="tabs">
+    <button class="active" onclick="showTab('effects',this)">✦ Effects</button>
+    <button onclick="showTab('karaoke',this)">🎤 Karaoke</button>
+    <button onclick="showTab('cmss',this)">CMSS 3D</button>
+    <button onclick="showTab('cleanup',this)">Clean-up</button>
+  </div>
+
+  <section class="content" id="effects">
+    <p>Audio Effects - Silver Echo Engine</p>
+    <label><input type="checkbox" id="enabled" checked>
+      Enable Audio Effects
+    </label>
+
+    <div class="columns">
+      <div>
+        <h4>Environment</h4>
+        <div class="panel presets">
+          <button onclick="preset('Cathedral')">Cathedral</button>
+          <button onclick="preset('Chapel')">Chapel</button>
+          <button onclick="preset('Church')">Church</button>
+          <button onclick="preset('Concert Hall')">Concert Hall</button>
+          <button onclick="preset('Garage')">Garage</button>
+          <button onclick="preset('Haunted Cave')">Haunted Cave</button>
+        </div>
+        <p>Active Preset: <b id="presetName">Church</b></p>
+      </div>
+
+      <div>
+        <div class="panel">
+          <b>Effects Amount: <span id="amountText">75</span>%</b>
+          <input id="amount" type="range" min="0" max="100" value="75">
+        </div>
+
+        <div class="panel">
+          <b>🎙 Mic Passthrough</b>
+          <p class="status">Hear the microphone with echo.</p>
+          <button onclick="toggleMic()" id="micButton">Enable Mic</button>
+          <p class="status" id="micStatus">Microphone is off.</p>
+        </div>
+
+        <label>Audio Source</label>
+        <select id="source">
+          <option value="mic">Microphone</option>
+          <option value="demo">Demo Synth Tone</option>
+        </select>
+        <p><button onclick="playDemo()">▶ Play Demo</button>
+        <button onclick="stopDemo()">■ Stop</button></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="content" id="karaoke" hidden>
+    <h3>Karaoke</h3>
+    Vocal level
+    <input type="range" min="0" max="100" value="75">
+  </section>
+
+  <section class="content" id="cmss" hidden>
+    <h3>CMSS 3D</h3>
+    <label><input type="checkbox" checked> Enable 3D Effect</label>
+  </section>
+
+  <section class="content" id="cleanup" hidden>
+    <h3>Clean-up</h3>
+    <label><input type="checkbox"> Noise reduction</label>
+  </section>
+
+  <div class="footer">
+    <div id="clock">● 00:00:00</div>
+    <p>
+      <button onclick="startClock()">▶ Start</button>
+      <button onclick="pauseClock()">Ⅱ Pause</button>
+      <button onclick="resetClock()">■ Reset</button>
+    </p>
+    <span>CREATIVE</span>
+    <p>تم تطويره من قبل ليث</p>
+  </div>
+</div>
+
+<script>
+let audio, stream, micSource, convolver, wet, oscillator;
+let seconds = 0, clockTimer = null;
+
+function showTab(id, button) {
+  ['effects','karaoke','cmss','cleanup'].forEach(tab => {
+    document.getElementById(tab).hidden = tab !== id;
+  });
+  document.querySelectorAll('.tabs button').forEach(b =>
+    b.classList.remove('active'));
+  button.classList.add('active');
+}
+
+function preset(name) {
+  document.getElementById('presetName').textContent = name;
+  if (!audio || !convolver) return;
+
+  const duration = name === 'Cathedral' ? 5 :
+                   name === 'Haunted Cave' ? 4 : 2.5;
+  const rate = audio.sampleRate;
+  const buffer = audio.createBuffer(2, rate * duration, rate);
+
+  for (let channel = 0; channel < 2; channel++) {
+    const data = buffer.getChannelData(channel);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) *
+        Math.pow(1 - i / data.length, 3);
+    }
+  }
+  convolver.buffer = buffer;
+}
+
+document.getElementById('amount').oninput = function() {
+  document.getElementById('amountText').textContent = this.value;
+  if (wet) wet.gain.value = this.value / 100;
+};
+
+async function toggleMic() {
+  const button = document.getElementById('micButton');
+  const status = document.getElementById('micStatus');
+
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+    if (audio) await audio.close();
+    audio = micSource = convolver = wet = null;
+    button.textContent = 'Enable Mic';
+    status.textContent = 'Microphone is off.';
+    return;
+  }
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    });
+
+    audio = new (window.AudioContext || window.webkitAudioContext)();
+    micSource = audio.createMediaStreamSource(stream);
+    convolver = audio.createConvolver();
+    wet = audio.createGain();
+    wet.gain.value = document.getElementById('amount').value / 100;
+
+    micSource.connect(convolver);
+    convolver.connect(wet);
+    wet.connect(audio.destination);
+
+    preset(document.getElementById('presetName').textContent);
+    button.textContent = 'Disable Mic';
+    status.textContent = 'Mic active. Use headphones to reduce feedback.';
+  } catch (error) {
+    status.textContent = 'Mic error: ' + error.message +
+      '. Open this page over HTTPS and allow microphone access.';
+  }
+}
+
+function playDemo() {
+  if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+  stopDemo();
+  oscillator = audio.createOscillator();
+  const gain = audio.createGain();
+  oscillator.frequency.value = 220;
+  gain.gain.value = 0.08;
+  oscillator.connect(gain);
+  gain.connect(audio.destination);
+  oscillator.start();
+  oscillator._gain = gain;
+}
+
+function stopDemo() {
+  if (oscillator) {
+    oscillator.stop();
+    oscillator.disconnect();
+    oscillator = null;
+  }
+}
+
+function startClock() {
+  if (clockTimer) return;
+  clockTimer = setInterval(() => {
+    seconds++;
+    document.getElementById('clock').textContent =
+      '● ' + new Date(seconds * 1000).toISOString().slice(11,19);
+  }, 1000);
+  if (document.getElementById('source').value === 'demo') playDemo();
+}
+
+function pauseClock() {
+  clearInterval(clockTimer);
+  clockTimer = null;
+}
+
+function resetClock() {
+  pauseClock();
+  seconds = 0;
+  document.getElementById('clock').textContent = '● 00:00:00';
+  stopDemo();
+}
+</script>
+</body>
+</html>
